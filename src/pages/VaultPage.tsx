@@ -10,6 +10,7 @@ import {
 } from "@lifi/sdk";
 import type { Route } from "@lifi/types";
 import { ChainSelector } from "@/components/ChainSelector";
+import { RouteList } from "@/components/RouteList";
 import { StrategyTable } from "@/components/StrategyTable";
 import { TransactionProgress } from "@/components/TransactionProgress";
 import { Button } from "@/components/ui/button";
@@ -482,41 +483,12 @@ export default function VaultPage() {
                   <CardTitle className="text-sm">Pick a route (top 3)</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 pt-0">
-                  <RadioGroup
-                    value={String(selectedRouteIndex)}
-                    onValueChange={(v) => setSelectedRouteIndex(Number(v))}
-                    className="grid gap-2"
-                  >
-                    {routes.map((r, i) => {
-                      const stepNames = r.steps
-                        .map((s) => (s as { toolDetails?: { name?: string }; tool?: string }).toolDetails?.name ?? (s as { tool?: string }).tool)
-                        .filter(Boolean) as string[];
-                      const routeLabel = stepNames.length > 0 ? stepNames.join(" → ") : `Route ${i + 1}`;
-                      const firstStep = r.steps[0] as { estimate?: { executionDuration?: number } } | undefined;
-                      const estSec = firstStep?.estimate?.executionDuration;
-                      const estTime = estSec != null ? (estSec < 60 ? `~${estSec}s` : `~${Math.ceil(estSec / 60)} min`) : "~2 min";
-                      return (
-                        <div
-                          key={r.id}
-                          className="flex items-start space-x-3 rounded-lg border p-3 hover:bg-muted/50"
-                        >
-                          <RadioGroupItem value={String(i)} id={`route-${i}`} />
-                          <Label
-                            htmlFor={`route-${i}`}
-                            className="flex-1 cursor-pointer space-y-1"
-                          >
-                            <div className="font-medium">{routeLabel}</div>
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
-                              <span>Receive: {formatVaultUnits(BigInt(r.toAmount))} USDC</span>
-                              <span>Fees: {r.gasCostUSD ? `$${r.gasCostUSD}` : "—"}</span>
-                              <span>Steps: {r.steps.length}</span>
-                              <span>Est. time: {estTime}</span>
-                            </div>
-                          </Label>
-                        </div>
-                      );
-                    })}
-                  </RadioGroup>
+                  <RouteList
+                    routes={routes}
+                    selectedIndex={selectedRouteIndex}
+                    onSelectIndex={setSelectedRouteIndex}
+                    formatVaultUnits={formatVaultUnits}
+                  />
                   <Button
                     className="w-full"
                     disabled={isLifiPending}
