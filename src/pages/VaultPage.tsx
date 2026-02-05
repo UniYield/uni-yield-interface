@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAccount, useSwitchChain, useWriteContract } from "wagmi";
 import { toast } from "sonner";
@@ -98,6 +98,15 @@ export default function VaultPage() {
   const [bridgeTxHash, setBridgeTxHash] = useState<string | null>(null);
   const [bridgeReceivedAmount, setBridgeReceivedAmount] = useState<string>("");
   const [bridgeStatusPolling, setBridgeStatusPolling] = useState(false);
+  const [selectedStrategyProtocol, setSelectedStrategyProtocol] = useState<string | null>(null);
+
+  // Default to active strategy when strategies load
+  useEffect(() => {
+    if (strategies.length > 0 && selectedStrategyProtocol == null) {
+      const active = strategies.find((s) => s.status === "active");
+      setSelectedStrategyProtocol(active?.protocol ?? strategies[0].protocol);
+    }
+  }, [strategies, selectedStrategyProtocol]);
 
   const isSameChainDeposit = chain === "ethereum";
   const isWrongChain =
@@ -112,7 +121,9 @@ export default function VaultPage() {
     estimatedSharesQ.data != null
       ? formatVaultUnits(estimatedSharesQ.data)
       : "0.000000";
-  const currentAPY = summary?.currentAPY ?? "—";
+  const selectedStrategy = strategies.find((s) => s.protocol === selectedStrategyProtocol);
+  const currentAPY =
+    selectedStrategy?.apy ?? summary?.currentAPY ?? "—";
   const estimatedFees = amount
     ? `$${(parseFloat(amount) * 0.0013).toFixed(2)}`
     : "$0.00";
@@ -502,39 +513,47 @@ export default function VaultPage() {
           </div>
         )}
 
-        {/* Strategy Section */}
-        <div className="space-y-3 pt-4 border-t border-border">
-          <label className="infra-label">Strategy Allocation</label>
-          <StrategyTable strategies={vaultLoading ? [] : strategies} />
-          <p className="text-xs text-muted-foreground">
-            The vault allocates to the highest net yield automatically.
-          </p>
-        </div>
+        {/* Strategy Allocation (deposit mode only) */}
+        {destinationMode === "uniyield" && (
+          <div className="space-y-3 pt-4 border-t border-border">
+            <label className="infra-label">Strategy Allocation</label>
+            <StrategyTable
+              strategies={vaultLoading ? [] : strategies}
+              selectedProtocol={selectedStrategyProtocol}
+              onSelectProtocol={setSelectedStrategyProtocol}
+            />
+            <p className="text-xs text-muted-foreground">
+              The vault allocates to the highest net yield automatically.
+            </p>
+          </div>
+        )}
 
-        {/* Summary Section */}
-        <div className="space-y-3 pt-4 border-t border-border">
-          <label className="infra-label">Summary</label>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Estimated shares</span>
-              <span className="font-medium tabular-nums">
-                {estimatedSharesQ.isLoading ? "…" : estimatedSharesFormatted}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Current APY</span>
-              <span className="font-medium text-success">{currentAPY}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Estimated fees</span>
-              <span className="font-medium tabular-nums">{estimatedFees}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Execution time</span>
-              <span className="font-medium">{executionTime}</span>
+        {/* Summary (deposit mode only) */}
+        {destinationMode === "uniyield" && (
+          <div className="space-y-3 pt-4 border-t border-border">
+            <label className="infra-label">Summary</label>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Estimated shares</span>
+                <span className="font-medium tabular-nums">
+                  {estimatedSharesQ.isLoading ? "…" : estimatedSharesFormatted}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Current APY</span>
+                <span className="font-medium text-success">{currentAPY}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Estimated fees</span>
+                <span className="font-medium tabular-nums">{estimatedFees}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Execution time</span>
+                <span className="font-medium">{executionTime}</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Action Button (UniYield deposit only) */}
         {destinationMode === "uniyield" && (
