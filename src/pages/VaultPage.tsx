@@ -88,14 +88,15 @@ export default function VaultPage() {
 
   const handleChainChange = (newChain: string) => {
     const targetChainId = CHAIN_ID_BY_KEY[newChain];
-    if (address && chainId !== targetChainId) {
-      switchChainAsync({ chainId: targetChainId })
-        .then(() => setChain(newChain))
-        .catch(() => {
-          toast.error("Failed to switch network");
-        });
-    } else {
-      setChain(newChain);
+    const previousChain = chain;
+
+    setChain(newChain);
+
+    if (address) {
+      switchChainAsync({ chainId: targetChainId }).catch(() => {
+        setChain(previousChain);
+        toast.error("Failed to switch network");
+      });
     }
   };
 
