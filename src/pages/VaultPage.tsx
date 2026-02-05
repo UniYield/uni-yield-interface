@@ -444,8 +444,8 @@ export default function VaultPage() {
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="bridgeToSelf" id="dest-bridge" />
               <Label htmlFor="dest-bridge" className="flex items-center gap-2 font-normal cursor-pointer">
-                <span>Test: Bridge USDC to my Ethereum wallet</span>
-                <Badge variant="secondary" className="text-xs">LI.FI Debug Mode</Badge>
+                <span>Bridge USDC to my Ethereum wallet</span>
+                <Badge variant="secondary" className="text-xs">Bridge mode</Badge>
               </Label>
             </div>
           </RadioGroup>
@@ -456,12 +456,12 @@ export default function VaultPage() {
           )}
           {destinationMode === "bridgeToSelf" && (
             <p className="text-xs text-muted-foreground">
-              Bridge USDC from selected chain to your wallet on Ethereum. Use this to test LiFi before vault is live.
+              Bridge USDC from selected chain to your wallet on Ethereum.
             </p>
           )}
         </div>
 
-        {/* Bridge-to-self: routes and execute (Debug Mode) */}
+        {/* Bridge mode: routes and execute */}
         {destinationMode === "bridgeToSelf" && (
           <div className="space-y-4 pt-4 border-t border-border">
             <div className="flex items-center justify-between">
@@ -487,26 +487,35 @@ export default function VaultPage() {
                     onValueChange={(v) => setSelectedRouteIndex(Number(v))}
                     className="grid gap-2"
                   >
-                    {routes.map((r, i) => (
-                      <div
-                        key={r.id}
-                        className="flex items-start space-x-3 rounded-lg border p-3 hover:bg-muted/50"
-                      >
-                        <RadioGroupItem value={String(i)} id={`route-${i}`} />
-                        <Label
-                          htmlFor={`route-${i}`}
-                          className="flex-1 cursor-pointer space-y-1"
+                    {routes.map((r, i) => {
+                      const stepNames = r.steps
+                        .map((s) => (s as { toolDetails?: { name?: string }; tool?: string }).toolDetails?.name ?? (s as { tool?: string }).tool)
+                        .filter(Boolean) as string[];
+                      const routeLabel = stepNames.length > 0 ? stepNames.join(" → ") : `Route ${i + 1}`;
+                      const firstStep = r.steps[0] as { estimate?: { executionDuration?: number } } | undefined;
+                      const estSec = firstStep?.estimate?.executionDuration;
+                      const estTime = estSec != null ? (estSec < 60 ? `~${estSec}s` : `~${Math.ceil(estSec / 60)} min`) : "~2 min";
+                      return (
+                        <div
+                          key={r.id}
+                          className="flex items-start space-x-3 rounded-lg border p-3 hover:bg-muted/50"
                         >
-                          <div className="font-medium">Route {i + 1}</div>
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
-                            <span>Receive: {formatVaultUnits(BigInt(r.toAmount))} USDC</span>
-                            <span>Fees: {r.gasCostUSD ? `$${r.gasCostUSD}` : "—"}</span>
-                            <span>Steps: {r.steps.length}</span>
-                            <span>Est. time: ~2 min</span>
-                          </div>
-                        </Label>
-                      </div>
-                    ))}
+                          <RadioGroupItem value={String(i)} id={`route-${i}`} />
+                          <Label
+                            htmlFor={`route-${i}`}
+                            className="flex-1 cursor-pointer space-y-1"
+                          >
+                            <div className="font-medium">{routeLabel}</div>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                              <span>Receive: {formatVaultUnits(BigInt(r.toAmount))} USDC</span>
+                              <span>Fees: {r.gasCostUSD ? `$${r.gasCostUSD}` : "—"}</span>
+                              <span>Steps: {r.steps.length}</span>
+                              <span>Est. time: {estTime}</span>
+                            </div>
+                          </Label>
+                        </div>
+                      );
+                    })}
                   </RadioGroup>
                   <Button
                     className="w-full"
