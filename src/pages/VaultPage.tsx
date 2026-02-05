@@ -63,7 +63,7 @@ export default function VaultPage() {
   const [sharesReceived, setSharesReceived] = useState("0 uyUSDC");
   const isMock = useMockVault();
   const { chainId } = useAccount();
-  const { switchChain, isPending: isSwitchPending } = useSwitchChain();
+  const { switchChain, switchChainAsync, isPending: isSwitchPending } = useSwitchChain();
   const { writeContractAsync, isPending: isWritePending } = useWriteContract();
   const [isLifiPending, setIsLifiPending] = useState(false);
 
@@ -85,6 +85,19 @@ export default function VaultPage() {
     ? `$${(parseFloat(amount) * 0.0013).toFixed(2)}`
     : "$0.00";
   const executionTime = chain === "ethereum" ? "~30 seconds" : "~2 minutes";
+
+  const handleChainChange = (newChain: string) => {
+    const targetChainId = CHAIN_ID_BY_KEY[newChain];
+    if (address && chainId !== targetChainId) {
+      switchChainAsync({ chainId: targetChainId })
+        .then(() => setChain(newChain))
+        .catch(() => {
+          toast.error("Failed to switch network");
+        });
+    } else {
+      setChain(newChain);
+    }
+  };
 
   const handleDeposit = () => {
     const assets = BigInt(Math.round(parseFloat(amount) * 1e6));
@@ -275,7 +288,7 @@ export default function VaultPage() {
         {/* Source Section */}
         <div className="space-y-3">
           <label className="infra-label">Deposit from</label>
-          <ChainSelector value={chain} onValueChange={setChain} />
+          <ChainSelector value={chain} onValueChange={handleChainChange} />
           <div className="flex gap-3">
             <div className="flex-1">
               <Input
