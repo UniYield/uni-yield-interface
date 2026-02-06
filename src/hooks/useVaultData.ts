@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { usePublicClient } from "wagmi";
 import {
   getStrategies,
@@ -13,6 +14,7 @@ import {
   type AllocationRow,
   type VaultSummary,
 } from "@/lib/vault";
+import { useDefiLlamaYields, defiLlamaQueryKeys } from "./useDefiLlamaYields";
 
 export const vaultQueryKeys = {
   all: ["vault"] as const,
@@ -65,7 +67,8 @@ export function useUserVaultBalance(userAddress: string | null) {
   });
 }
 
-/** Single hook that returns strategies, allocations, and summary for pages that need several. */
+/** Single hook that returns strategies, allocations, and summary for pages that need several.
+ * Merges DefiLlama real-time USDC yields (Aave V3, Morpho, Compound V3 on Ethereum) when available. */
 export function useVaultData(): {
   strategies: StrategyRow[];
   allocations: AllocationRow[];
@@ -77,15 +80,32 @@ export function useVaultData(): {
   const strategiesQ = useVaultStrategies();
   const allocationsQ = useVaultAllocations();
   const summaryQ = useVaultSummary();
+  const { data: defiLlamaYields } = useDefiLlamaYields();
 
-  const strategies = strategiesQ.data ?? [];
+  const strategies = useMemo(() => {
+    const base = strategiesQ.data ?? [];
+    const yields = defiLlamaYields ?? {};
+    if (Object.keys(yields).length === 0) return base;
+    return base.map((s) => ({
+      ...s,
+      apy: yields[s.protocol] ?? s.apy,
+    }));
+  }, [strategiesQ.data, defiLlamaYields]);
+
   const allocations = allocationsQ.data ?? [];
-  const summary = summaryQ.data ?? null;
+  const summary = useMemo(() => {
+    const base = summaryQ.data ?? null;
+    if (!base || !defiLlamaYields) return base;
+    const activeApy = defiLlamaYields[base.activeProtocolName];
+    if (!activeApy) return base;
+    return { ...base, currentAPY: activeApy };
+  }, [summaryQ.data, defiLlamaYields]);
   const isLoading =
     strategiesQ.isLoading || allocationsQ.isLoading || summaryQ.isLoading;
 
   const refetch = () => {
     client.invalidateQueries({ queryKey: vaultQueryKeys.all });
+    client.invalidateQueries({ queryKey: defiLlamaQueryKeys.all });
   };
 
   return { strategies, allocations, summary, isLoading, refetch };
