@@ -4,24 +4,24 @@
  */
 import { getRoutes, getStatus } from "@lifi/sdk";
 import type { RoutesRequest, RoutesResponse, StatusResponse } from "@lifi/types";
-import { LIFI_ETHEREUM_CHAIN_ID, USDC_BY_CHAIN_ID } from "@/lib/chains";
+import { USDC_BY_CHAIN_ID } from "@/lib/chains";
 
 export interface GetQuoteBridgeToSelfParams {
   fromChainId: number;
+  toChainId: number;
   fromAmount: string;
   fromAddress: string;
   toAddress: string;
 }
 
 /**
- * Fetch LiFi routes for bridging USDC from source chain to user's Ethereum wallet (USDC).
- * Destination is fixed: Ethereum, USDC, toAddress.
+ * Fetch LiFi routes for bridging USDC from source chain to destination chain (USDC).
  */
 export async function getQuoteBridgeToSelf(
   params: GetQuoteBridgeToSelfParams
 ): Promise<RoutesResponse> {
   const fromToken = USDC_BY_CHAIN_ID[params.fromChainId];
-  const toToken = USDC_BY_CHAIN_ID[LIFI_ETHEREUM_CHAIN_ID];
+  const toToken = USDC_BY_CHAIN_ID[params.toChainId];
   if (!fromToken || !toToken) {
     throw new Error("USDC not configured for source or destination chain");
   }
@@ -30,7 +30,7 @@ export async function getQuoteBridgeToSelf(
     fromAmount: params.fromAmount,
     fromTokenAddress: fromToken,
     fromAddress: params.fromAddress,
-    toChainId: LIFI_ETHEREUM_CHAIN_ID,
+    toChainId: params.toChainId,
     toTokenAddress: toToken,
     toAddress: params.toAddress,
     options: {

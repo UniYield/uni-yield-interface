@@ -30,6 +30,7 @@ import {
   LIFI_ETHEREUM_CHAIN_ID,
   USDC_BY_CHAIN_ID,
 } from "@/lib/lifi";
+import { getChainDisplayName } from "@/lib/chains";
 import { getQuoteBridgeToSelf, getLifiStatus } from "@/lib/lifiClient";
 import { VAULT_CHAIN_ID } from "@/lib/wagmi";
 import {
@@ -148,12 +149,14 @@ export default function VaultPage() {
   const fetchRoutesForBridge = useCallback(async () => {
     if (!address || !amount || parseFloat(amount) <= 0) return;
     const fromChainId = CHAIN_ID_BY_KEY[chain];
+    const toChainId = CHAIN_ID_BY_KEY[destinationChain];
     const fromAmount = BigInt(Math.round(parseFloat(amount) * 1e6)).toString();
     setRoutesLoading(true);
     setRoutes([]);
     try {
       const res = await getQuoteBridgeToSelf({
         fromChainId,
+        toChainId,
         fromAmount,
         fromAddress: address,
         toAddress: address,
@@ -168,7 +171,7 @@ export default function VaultPage() {
     } finally {
       setRoutesLoading(false);
     }
-  }, [address, amount, chain]);
+  }, [address, amount, chain, destinationChain]);
 
   const handleExecuteBridge = useCallback(async () => {
     const route = routes[selectedRouteIndex];
@@ -467,7 +470,7 @@ export default function VaultPage() {
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="bridgeToSelf" id="dest-bridge" />
               <Label htmlFor="dest-bridge" className="flex items-center gap-2 font-normal cursor-pointer">
-                <span>Bridge USDC to my Ethereum wallet</span>
+                <span>Bridge USDC directly to my wallet</span>
                 <Badge variant="secondary" className="text-xs">Bridge mode</Badge>
               </Label>
             </div>
@@ -479,7 +482,7 @@ export default function VaultPage() {
           )}
           {destinationMode === "bridgeToSelf" && (
             <p className="text-xs text-muted-foreground">
-              Bridge USDC from selected chain to your wallet on Ethereum.
+              Bridge USDC from selected chain to your wallet on {getChainDisplayName(CHAIN_ID_BY_KEY[destinationChain])}.
             </p>
           )}
         </div>
