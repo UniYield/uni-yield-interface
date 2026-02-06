@@ -25,6 +25,7 @@ import {
   getApprovalInfo,
   getStepDetails,
 } from "@/lib/routeUtils";
+import { getChainDisplayName } from "@/lib/chains";
 
 export interface RouteListProps {
   routes: Route[];
@@ -157,7 +158,7 @@ export function RouteList({
                           <li key={idx} className="text-xs pl-2">
                             <div className="font-medium text-foreground">{step.toolName}</div>
                             <div className="text-muted-foreground">
-                              {step.tokenIn} → {step.tokenOut} · Chain {step.fromChainId} → {step.toChainId}
+                              {step.tokenIn} → {step.tokenOut} · {getChainDisplayName(step.fromChainId)} → {getChainDisplayName(step.toChainId)}
                               {step.executionDurationSec != null && (
                                 <span> · ~{step.executionDurationSec}s</span>
                               )}
