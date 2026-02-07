@@ -586,21 +586,6 @@ export default function VaultPage() {
           </div>
         )}
 
-        {/* Strategy Allocation (deposit mode only) */}
-        {destinationMode === "uniyield" && (
-          <div className="space-y-3 pt-4 border-t border-border">
-            <label className="infra-label">Strategy Allocation</label>
-            <StrategyTable
-              strategies={vaultLoading ? [] : strategies}
-              selectedProtocol={selectedStrategyProtocol}
-              onSelectProtocol={setSelectedStrategyProtocol}
-            />
-            <p className="text-xs text-muted-foreground">
-              The vault allocates to the highest net yield automatically.
-            </p>
-          </div>
-        )}
-
         {/* Deposit mode: routes (cross-chain only) */}
         {destinationMode === "uniyield" && !isSameChainDeposit && (
           <div className="space-y-4 pt-4 border-t border-border">
@@ -693,6 +678,21 @@ export default function VaultPage() {
               {address
                 ? "You will receive ERC-4626 vault shares on Base."
                 : "Connect your wallet to deposit."}
+            </p>
+          </div>
+        )}
+
+        {/* Strategy Allocation (deposit mode only) */}
+        {destinationMode === "uniyield" && (
+          <div className="space-y-3 pt-4 border-t border-border">
+            <label className="infra-label">Strategy Allocation</label>
+            <StrategyTable
+              strategies={vaultLoading ? [] : strategies}
+              selectedProtocol={selectedStrategyProtocol}
+              onSelectProtocol={setSelectedStrategyProtocol}
+            />
+            <p className="text-xs text-muted-foreground">
+              The vault allocates to the highest net yield automatically.
             </p>
           </div>
         )}

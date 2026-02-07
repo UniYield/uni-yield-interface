@@ -30,7 +30,7 @@ const state = {
   asset: USDC_ADDRESS,
   totalAssets: 1250000_000000n,
   totalSupply: 1240000_000000n,
-  activeStrategyId: STRATEGY_IDS.MORPHO as `0x${string}`,
+  activeStrategyId: STRATEGY_IDS.AAVE as `0x${string}`,
   minSwitchBps: 30n,
 
   // user balances (shares)
