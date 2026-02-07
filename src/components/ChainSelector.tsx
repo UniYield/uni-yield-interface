@@ -14,12 +14,12 @@ function chainLogoPath(id: string): string {
 }
 
 const chains = [
-  { id: "base", name: "Base", chainId: CHAIN_ID_BY_KEY.base },
   { id: "arbitrum", name: "Arbitrum", chainId: CHAIN_ID_BY_KEY.arbitrum },
-  { id: "polygon", name: "Polygon", chainId: CHAIN_ID_BY_KEY.polygon },
-  { id: "ethereum", name: "Ethereum", chainId: CHAIN_ID_BY_KEY.ethereum },
-  { id: "bnb", name: "BNB Chain", chainId: CHAIN_ID_BY_KEY.bnb },
   { id: "optimism", name: "Optimism", chainId: CHAIN_ID_BY_KEY.optimism },
+  { id: "ethereum", name: "Ethereum", chainId: CHAIN_ID_BY_KEY.ethereum },
+  { id: "polygon", name: "Polygon", chainId: CHAIN_ID_BY_KEY.polygon },
+  { id: "bnb", name: "BNB Chain", chainId: CHAIN_ID_BY_KEY.bnb },
+  { id: "base", name: "Base", chainId: CHAIN_ID_BY_KEY.base },
 ];
 
 function ChainIcon({ id, className }: { id: string; className?: string }) {

@@ -13,12 +13,12 @@ function chainLogoPath(id: string): string {
 }
 
 const chains = [
-  { id: "arbitrum", name: "Arbitrum", chainId: CHAIN_ID_BY_KEY.arbitrum, available: true },
   { id: "base", name: "Base", chainId: CHAIN_ID_BY_KEY.base, available: true },
-  { id: "ethereum", name: "Ethereum", chainId: CHAIN_ID_BY_KEY.ethereum, available: true },
+  { id: "arbitrum", name: "Arbitrum", chainId: CHAIN_ID_BY_KEY.arbitrum, available: false },
+  { id: "optimism", name: "Optimism", chainId: CHAIN_ID_BY_KEY.optimism, available: false },
+  { id: "ethereum", name: "Ethereum", chainId: CHAIN_ID_BY_KEY.ethereum, available: false },
   { id: "polygon", name: "Polygon", chainId: CHAIN_ID_BY_KEY.polygon, available: false },
   { id: "bnb", name: "BNB Chain", chainId: CHAIN_ID_BY_KEY.bnb, available: false },
-  { id: "optimism", name: "Optimism", chainId: CHAIN_ID_BY_KEY.optimism, available: false },
 ];
 
 function ChainIcon({ id, className }: { id: string; className?: string }) {

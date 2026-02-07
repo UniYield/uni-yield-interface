@@ -68,7 +68,7 @@ export default function VaultPage() {
   const queryClient = useQueryClient();
   const { address } = useAccount();
   const { strategies, summary, isLoading: vaultLoading } = useVaultData();
-  const [chain, setChain] = useState("base");
+  const [chain, setChain] = useState("arbitrum");
   const receiver = address ?? DEMO_USER_ADDRESS;
   const [amount, setAmount] = useState("");
   const [showProgress, setShowProgress] = useState(false);
@@ -472,7 +472,7 @@ export default function VaultPage() {
           <ChainSelector
             value={chain}
             onValueChange={handleChainChange}
-            comingSoonChains={["ethereum", "bnb", "optimism"]}
+            comingSoonChains={["base"]}
           />
           <div className="flex gap-3">
             <div className="flex-1">
@@ -517,7 +517,10 @@ export default function VaultPage() {
                 htmlFor="dest-uniyield"
                 className="flex flex-col gap-0.5 font-normal cursor-pointer"
               >
-                <span>Deposit into UniYield</span>
+                <span className="flex items-center gap-2">
+                  1-click bridge/deposit into UniYield
+                  <Badge variant="secondary" className="text-xs">Deposit mode</Badge>
+                </span>
                 {vaultNotDeployed && (
                   <span className="text-xs text-muted-foreground">Vault not deployed — click to preview</span>
                 )}
