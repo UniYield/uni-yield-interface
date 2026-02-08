@@ -13,6 +13,11 @@ export const UNIYIELD_VAULT_BASE =
   import.meta.env.VITE_UNIYIELD_VAULT_ADDRESS ??
   "0x95A578Aa0aDDe49cb638745c86C27117AD00067c";
 
+/** UniYieldDepositReceiver on Base: receives bridged USDC and deposits to vault. */
+export const UNIYIELD_DEPOSIT_RECEIVER_BASE =
+  import.meta.env.VITE_UNIYIELD_DEPOSIT_RECEIVER_ADDRESS ??
+  "0xAb698345c3839B25fb4491E624a0e1123E0f206F";
+
 /** @deprecated Use UNIYIELD_VAULT_BASE */
 export const UNIYIELD_VAULT_ADDRESS = UNIYIELD_VAULT_BASE;
 

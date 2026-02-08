@@ -38,7 +38,10 @@ import {
   VAULT_ABI,
   UNIYIELD_VAULT_ADDRESS,
 } from "@/lib/vault";
-import { UNIYIELD_VAULT_ADDRESS as CONFIG_VAULT_ADDRESS } from "@/config/uniyield";
+import {
+  UNIYIELD_VAULT_ADDRESS as CONFIG_VAULT_ADDRESS,
+  UNIYIELD_DEPOSIT_RECEIVER_BASE,
+} from "@/config/uniyield";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 type StepStatus = "pending" | "loading" | "complete";
@@ -67,6 +70,9 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const vaultNotDeployed =
   !CONFIG_VAULT_ADDRESS ||
   CONFIG_VAULT_ADDRESS.toLowerCase() === ZERO_ADDRESS;
+const depositReceiverNotConfigured =
+  !UNIYIELD_DEPOSIT_RECEIVER_BASE ||
+  UNIYIELD_DEPOSIT_RECEIVER_BASE.toLowerCase() === ZERO_ADDRESS;
 
 export default function VaultPage() {
   const queryClient = useQueryClient();
@@ -87,7 +93,7 @@ export default function VaultPage() {
 
   const [destinationChain, setDestinationChain] = useState("base");
   const [destinationMode, setDestinationMode] = useState<"uniyield" | "bridgeToSelf">(
-    vaultNotDeployed ? "bridgeToSelf" : "uniyield"
+    vaultNotDeployed || depositReceiverNotConfigured ? "bridgeToSelf" : "uniyield"
   );
   const [routes, setRoutes] = useState<Route[]>([]);
   const [routesLoading, setRoutesLoading] = useState(false);
@@ -576,8 +582,12 @@ export default function VaultPage() {
                   1-click bridge/deposit into UniYield
                   <Badge variant="secondary" className="text-xs">Deposit mode</Badge>
                 </span>
-                {vaultNotDeployed && (
-                  <span className="text-xs text-muted-foreground">Vault not deployed — click to preview</span>
+                {(vaultNotDeployed || depositReceiverNotConfigured) && (
+                  <span className="text-xs text-muted-foreground">
+                    {depositReceiverNotConfigured
+                      ? "Deposit receiver not configured — set VITE_UNIYIELD_DEPOSIT_RECEIVER_ADDRESS"
+                      : "Vault not deployed — click to preview"}
+                  </span>
                 )}
               </Label>
             </div>
@@ -708,6 +718,7 @@ export default function VaultPage() {
               onClick={handleDeposit}
               disabled={
                 vaultNotDeployed ||
+                depositReceiverNotConfigured ||
                 !address ||
                 !amount ||
                 parseFloat(amount) <= 0 ||

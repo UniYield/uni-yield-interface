@@ -1,5 +1,8 @@
 /**
  * LiFi client helpers: bridge-to-self and vault deposit with contract calls.
+ *
+ * Deposit flow: Bridge USDC to UniYieldDepositReceiver on Base, then call
+ * receiver.depositToVault(beneficiary, minSharesOut) to deposit all received USDC into the vault.
  */
 import {
   getQuote,
@@ -7,7 +10,6 @@ import {
   getRoutes,
   getStatus,
   convertQuoteToRoute,
-  PatcherMagicNumber,
 } from "@lifi/sdk";
 import type {
   ContractCall,
@@ -16,43 +18,136 @@ import type {
   StatusResponse,
 } from "@lifi/types";
 import type { Route } from "@lifi/types";
-import { encodeFunctionData } from "viem";
+import { encodeFunctionData, createPublicClient, http, type Address } from "viem";
+import { base } from "viem/chains";
 import { USDC_BY_CHAIN_ID } from "@/lib/chains";
 import {
-  UNIYIELD_VAULT_BASE,
+  UNIYIELD_DEPOSIT_RECEIVER_BASE,
   USDC_BY_CHAIN,
   BASE_CHAIN_ID,
 } from "@/config/uniyield";
-import erc20Abi from "@/abis/erc20.json";
-import uniyieldVaultAbi from "@/abis/uniyieldVaultUI.abi.json";
+import uniyieldDepositReceiverAbi from "@/abis/uniyieldDepositReceiver.abi.json";
 
-const ERC20_APPROVE_GAS = "80000";
-const VAULT_DEPOSIT_GAS = "200000";
+const DEPOSIT_TO_VAULT_GAS = "250000";
+
+const receiverAbi = uniyieldDepositReceiverAbi as readonly unknown[];
+
+/** Encode calldata for receiver.depositToVault(beneficiary, minSharesOut) */
+export function encodeDepositToVaultCalldata(
+  beneficiary: Address,
+  minSharesOut: bigint = 0n
+): `0x${string}` {
+  return encodeFunctionData({
+    abi: receiverAbi,
+    functionName: "depositToVault",
+    args: [beneficiary, minSharesOut],
+  });
+}
 
 export interface GetQuoteDepositToUniYieldParams {
   fromChainId: number;
   fromAmount: string;
   userAddress: string;
+  /** Beneficiary of vault shares (default: userAddress) */
   receiver?: string;
 }
 
+function getBasePublicClient() {
+  return createPublicClient({
+    chain: base,
+    transport: http(
+      import.meta.env.VITE_BASE_RPC ?? "https://mainnet.base.org"
+    ),
+  });
+}
+
 /**
- * Get LiFi quote for cross-chain deposit into UniYield vault.
- * Uses contractCalls: USDC.approve(vault, amountOut) + vault.deposit(amountOut, receiver).
- * One user signature - approve is bundled in LiFi execution.
+ * Validate that the receiver contract on Base is configured for USDC.
+ * Throws if receiver.asset() !== USDC on Base.
+ */
+export async function validateReceiverHasUsdcAsset(
+  receiverAddress: string,
+  publicClient?: ReturnType<typeof createPublicClient>
+): Promise<void> {
+  const client = publicClient ?? getBasePublicClient();
+  const asset = (await client.readContract({
+    address: receiverAddress as Address,
+    abi: receiverAbi,
+    functionName: "asset",
+  })) as string;
+  const usdcBase = USDC_BY_CHAIN[BASE_CHAIN_ID];
+  if (!usdcBase || asset.toLowerCase() !== usdcBase.toLowerCase()) {
+    throw new Error(
+      `UniYieldDepositReceiver asset mismatch: expected USDC (${usdcBase}), got ${asset}. Ensure receiver is configured for Base USDC.`
+    );
+  }
+}
+
+const erc20BalanceOfAbi = [
+  {
+    type: "function" as const,
+    name: "balanceOf",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "uint256" }],
+    stateMutability: "view" as const,
+  },
+] as const;
+
+/**
+ * Validate that the receiver holds USDC on Base before the deposit call.
+ * Call this when preparing the destination tx (after bridge has delivered).
+ * Throws if receiver's USDC balance is 0.
+ */
+export async function validateReceiverHoldsUsdc(
+  receiverAddress: string
+): Promise<void> {
+  const usdcBase = USDC_BY_CHAIN[BASE_CHAIN_ID];
+  if (!usdcBase) throw new Error("USDC not configured for Base");
+  const client = getBasePublicClient();
+  const balance = await client.readContract({
+    address: usdcBase as Address,
+    abi: erc20BalanceOfAbi,
+    functionName: "balanceOf",
+    args: [receiverAddress as Address],
+  });
+  if (balance === 0n) {
+    throw new Error(
+      "UniYieldDepositReceiver holds no USDC on Base. Bridge may not have delivered yet or failed. Check bridge status."
+    );
+  }
+}
+
+/**
+ * Get LiFi quote for cross-chain deposit into UniYield vault via UniYieldDepositReceiver.
+ *
+ * Flow:
+ * 1. Bridge USDC to the receiver contract (NOT user EOA).
+ * 2. Single contract call: receiver.depositToVault(beneficiary, minSharesOut).
+ *
+ * No destination swap. denyExchanges: ["all"].
  */
 export async function getQuoteDepositToUniYield(
   params: GetQuoteDepositToUniYieldParams
 ): Promise<{ route: Route; depositAmountOut: string }> {
-  const fromToken = USDC_BY_CHAIN[params.fromChainId] ?? USDC_BY_CHAIN_ID[params.fromChainId];
+  if (!UNIYIELD_DEPOSIT_RECEIVER_BASE) {
+    throw new Error(
+      "VITE_UNIYIELD_DEPOSIT_RECEIVER_ADDRESS not set. Configure the UniYieldDepositReceiver address on Base."
+    );
+  }
+
+  const fromToken =
+    USDC_BY_CHAIN[params.fromChainId] ?? USDC_BY_CHAIN_ID[params.fromChainId];
   const toToken = USDC_BY_CHAIN[BASE_CHAIN_ID];
-  const receiver = params.receiver ?? params.userAddress;
+  const beneficiary = (params.receiver ?? params.userAddress) as Address;
 
   if (!fromToken || !toToken) {
     throw new Error("USDC not configured for source or Base chain");
   }
 
-  // Step 1: Get bridge-only quote to estimate toAmount on Base
+  // Validate receiver is configured for USDC before building route
+  await validateReceiverHasUsdcAsset(UNIYIELD_DEPOSIT_RECEIVER_BASE);
+
+  // Step 1: Bridge-only quote to estimate toAmount on Base
   const bridgeQuote = await getQuote({
     fromChain: params.fromChainId,
     toChain: BASE_CHAIN_ID,
@@ -60,43 +155,25 @@ export async function getQuoteDepositToUniYield(
     toToken,
     fromAmount: params.fromAmount,
     fromAddress: params.userAddress,
-    toAddress: params.userAddress,
+    toAddress: UNIYIELD_DEPOSIT_RECEIVER_BASE, // Bridge recipient = receiver contract
   });
 
-  const toAmount = bridgeQuote.estimate?.toAmount ?? bridgeQuote.action?.toAmount;
+  const toAmount =
+    bridgeQuote.estimate?.toAmount ?? (bridgeQuote.action as { toAmount?: string })?.toAmount;
   if (!toAmount) {
     throw new Error("Could not estimate destination amount");
   }
 
-  // Step 2: Build contract calls (exact approval, no infinite)
-  const approveCalldata = encodeFunctionData({
-    abi: erc20Abi as never,
-    functionName: "approve",
-    args: [UNIYIELD_VAULT_BASE as `0x${string}`, BigInt(toAmount)],
-  });
-
-  const depositCalldata = encodeFunctionData({
-    abi: uniyieldVaultAbi as never,
-    functionName: "deposit",
-    args: [BigInt(toAmount), receiver as `0x${string}`],
-  });
+  // Step 2: Single contract call - receiver.depositToVault(beneficiary, 0)
+  const depositCalldata = encodeDepositToVaultCalldata(beneficiary, 0n);
 
   const contractCalls: ContractCall[] = [
     {
       fromAmount: toAmount,
       fromTokenAddress: toToken,
-      toContractAddress: toToken,
-      toContractCallData: approveCalldata,
-      toContractGasLimit: ERC20_APPROVE_GAS,
-      toApprovalAddress: UNIYIELD_VAULT_BASE,
-    },
-    {
-      fromAmount: toAmount,
-      fromTokenAddress: toToken,
-      toContractAddress: UNIYIELD_VAULT_BASE,
+      toContractAddress: UNIYIELD_DEPOSIT_RECEIVER_BASE,
       toContractCallData: depositCalldata,
-      toContractGasLimit: VAULT_DEPOSIT_GAS,
-      // Omit toTokenAddress: avoid LiFi adding swap logic for vault shares
+      toContractGasLimit: DEPOSIT_TO_VAULT_GAS,
     },
   ];
 
@@ -108,18 +185,14 @@ export async function getQuoteDepositToUniYield(
     fromAddress: params.userAddress,
     fromAmount: params.fromAmount,
     contractCalls,
-    toFallbackAddress: params.userAddress,
-    // Option B: Remove destination swap entirely.
-    // fromToken==toToken (USDC) so no swap needed. denyExchanges prevents LiFi from
-    // adding a swap step. Without swap, bridged funds should land in Executor (not EOA),
-    // so approve+deposit can run. Swap was failing: Executor had 0 balance (Stargate
-    // was sending to EOA) and swap() reverted.
+    toFallbackAddress: beneficiary, // If call fails, send bridged USDC to user
+    // Bridge recipient = receiver contract (LiFi may use this for routing)
+    toAddress: UNIYIELD_DEPOSIT_RECEIVER_BASE,
     denyExchanges: ["all"],
     slippage: 0.003,
-  });
+  } as Parameters<typeof getContractCallsQuote>[0] & { toAddress?: string });
 
   const route = convertQuoteToRoute(contractCallQuote);
-  // LiFi returns toAmount=0 for custom vault token; attach actual USDC amount for UI
   (route as Route & { depositAmountOut?: string }).depositAmountOut = toAmount;
 
   return {
@@ -130,55 +203,44 @@ export async function getQuoteDepositToUniYield(
 
 /**
  * Creates getContractCalls hook for executeRoute.
- * Required for contract call steps - SDK re-fetches calls when preparing destination tx.
- * Uses PatcherMagicNumber so LiFi can patch the actual amount after bridge settlement.
+ * Returns a single contract call: receiver.depositToVault(beneficiary, 0).
+ * No patcher needed - receiver deposits its full balance.
  */
 export function createGetContractCallsForUniYield(): (
   params: import("@lifi/sdk").ContractCallParams
-) => Promise<{ contractCalls: ContractCall[]; patcher?: boolean }> {
+) => Promise<{ contractCalls: ContractCall[] }> {
   return async (params) => {
+    if (!UNIYIELD_DEPOSIT_RECEIVER_BASE) {
+      throw new Error(
+        "VITE_UNIYIELD_DEPOSIT_RECEIVER_ADDRESS not set. Configure the UniYieldDepositReceiver address on Base."
+      );
+    }
+
     const toToken = USDC_BY_CHAIN[BASE_CHAIN_ID];
     if (!toToken) {
       throw new Error("USDC not configured for Base");
     }
-    const receiver = params.toAddress ?? params.fromAddress;
 
-    const usePatcher = params.toAmount <= 0n;
-    const amount = usePatcher ? PatcherMagicNumber : params.toAmount;
-    const amountStr = amount.toString();
+    // Beneficiary = user (vault shares recipient). fromAddress is the sender; toAddress may be bridge recipient.
+    const beneficiary = params.fromAddress as Address;
 
-    const approveCalldata = encodeFunctionData({
-      abi: erc20Abi as never,
-      functionName: "approve",
-      args: [UNIYIELD_VAULT_BASE as `0x${string}`, amount],
-    });
+    const depositCalldata = encodeDepositToVaultCalldata(beneficiary, 0n);
 
-    const depositCalldata = encodeFunctionData({
-      abi: uniyieldVaultAbi as never,
-      functionName: "deposit",
-      args: [amount, receiver as `0x${string}`],
-    });
+    // fromAmount: expected USDC for this call. depositToVault uses full balance; use toAmount when available, else fromAmount (bridge input).
+    const expectedAmount =
+      params.toAmount > 0n ? params.toAmount : params.fromAmount;
 
     const contractCalls: ContractCall[] = [
       {
-        fromAmount: amountStr,
+        fromAmount: expectedAmount.toString(),
         fromTokenAddress: toToken,
-        toContractAddress: toToken,
-        toContractCallData: approveCalldata,
-        toContractGasLimit: ERC20_APPROVE_GAS,
-        toApprovalAddress: UNIYIELD_VAULT_BASE,
-      },
-      {
-        fromAmount: amountStr,
-        fromTokenAddress: toToken,
-        toContractAddress: UNIYIELD_VAULT_BASE,
+        toContractAddress: UNIYIELD_DEPOSIT_RECEIVER_BASE,
         toContractCallData: depositCalldata,
-        toContractGasLimit: VAULT_DEPOSIT_GAS,
-        // Omit toTokenAddress: avoid LiFi adding swap logic for vault shares
+        toContractGasLimit: DEPOSIT_TO_VAULT_GAS,
       },
     ];
 
-    return { contractCalls, patcher: usePatcher || undefined };
+    return { contractCalls };
   };
 }
 
@@ -227,9 +289,10 @@ export interface GetStatusParams {
 
 /**
  * Poll LiFi status for a transfer (e.g. after sending the first step tx).
- * TODO: Use taskId from executeRoute if LiFi returns it for more accurate tracking.
  */
-export async function getLifiStatus(params: GetStatusParams): Promise<StatusResponse> {
+export async function getLifiStatus(
+  params: GetStatusParams
+): Promise<StatusResponse> {
   return getStatus({
     txHash: params.txHash,
     bridge: params.bridge,
