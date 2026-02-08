@@ -490,7 +490,7 @@ export default function VaultPage() {
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          USDC Yield Vault
+          UniYield
         </h1>
         <p className="mt-2 text-muted-foreground">
           Automatically allocates across leading lending protocols.
