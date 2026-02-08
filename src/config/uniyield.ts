@@ -18,6 +18,15 @@ export const UNIYIELD_DEPOSIT_RECEIVER_BASE =
   import.meta.env.VITE_UNIYIELD_DEPOSIT_RECEIVER_ADDRESS ??
   "0xAb698345c3839B25fb4491E624a0e1123E0f206F";
 
+/**
+ * LiFi cross-chain deposit mode:
+ * - "receiver": Bridge to UniYieldDepositReceiver, call depositToVault(beneficiary, 0)
+ * - "vault": Bridge to Executor, call vault.deposit(amount, receiver) with toApprovalAddress
+ */
+export type LifiDepositMode = "receiver" | "vault";
+export const LIFI_DEPOSIT_MODE: LifiDepositMode =
+  (import.meta.env.VITE_LIFI_DEPOSIT_MODE as LifiDepositMode) ?? "receiver";
+
 /** @deprecated Use UNIYIELD_VAULT_BASE */
 export const UNIYIELD_VAULT_ADDRESS = UNIYIELD_VAULT_BASE;
 

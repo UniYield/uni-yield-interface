@@ -1,8 +1,8 @@
 /**
  * LiFi client helpers: bridge-to-self and vault deposit with contract calls.
  *
- * Deposit flow: Bridge USDC to UniYieldDepositReceiver on Base, then call
- * receiver.depositToVault(beneficiary, minSharesOut) to deposit all received USDC into the vault.
+ * Mode 1 (receiver): Bridge to UniYieldDepositReceiver, call depositToVault(beneficiary, 0).
+ * Mode 2 (vault): Bridge to Executor, call vault.deposit(amount, receiver) with toApprovalAddress.
  */
 import {
   getQuote,
@@ -10,6 +10,7 @@ import {
   getRoutes,
   getStatus,
   convertQuoteToRoute,
+  PatcherMagicNumber,
 } from "@lifi/sdk";
 import type {
   ContractCall,
@@ -23,14 +24,19 @@ import { base } from "viem/chains";
 import { USDC_BY_CHAIN_ID } from "@/lib/chains";
 import {
   UNIYIELD_DEPOSIT_RECEIVER_BASE,
+  UNIYIELD_VAULT_BASE,
   USDC_BY_CHAIN,
   BASE_CHAIN_ID,
+  type LifiDepositMode,
 } from "@/config/uniyield";
 import uniyieldDepositReceiverAbi from "@/abis/uniyieldDepositReceiver.abi.json";
+import uniyieldVaultAbi from "@/abis/uniyieldVaultUI.abi.json";
 
 const DEPOSIT_TO_VAULT_GAS = "250000";
+const VAULT_DEPOSIT_GAS = "200000";
 
 const receiverAbi = uniyieldDepositReceiverAbi as readonly unknown[];
+const vaultAbi = uniyieldVaultAbi as readonly unknown[];
 
 /** Encode calldata for receiver.depositToVault(beneficiary, minSharesOut) */
 export function encodeDepositToVaultCalldata(
@@ -44,12 +50,26 @@ export function encodeDepositToVaultCalldata(
   });
 }
 
+/** Encode calldata for vault.deposit(assets, receiver) */
+export function encodeVaultDepositCalldata(
+  assets: bigint,
+  receiver: Address
+): `0x${string}` {
+  return encodeFunctionData({
+    abi: vaultAbi,
+    functionName: "deposit",
+    args: [assets, receiver],
+  });
+}
+
 export interface GetQuoteDepositToUniYieldParams {
   fromChainId: number;
   fromAmount: string;
   userAddress: string;
   /** Beneficiary of vault shares (default: userAddress) */
   receiver?: string;
+  /** "receiver" = UniYieldDepositReceiver, "vault" = UniYieldDiamond direct */
+  mode?: LifiDepositMode;
 }
 
 function getBasePublicClient() {
@@ -118,22 +138,17 @@ export async function validateReceiverHoldsUsdc(
 }
 
 /**
- * Get LiFi quote for cross-chain deposit into UniYield vault via UniYieldDepositReceiver.
+ * Get LiFi quote for cross-chain deposit into UniYield vault.
  *
- * Flow:
- * 1. Bridge USDC to the receiver contract (NOT user EOA).
- * 2. Single contract call: receiver.depositToVault(beneficiary, minSharesOut).
+ * Mode 1 (receiver): Bridge to UniYieldDepositReceiver, call depositToVault(beneficiary, 0).
+ * Mode 2 (vault): Bridge to Executor, call vault.deposit(amount, receiver) with toApprovalAddress.
  *
  * No destination swap. denyExchanges: ["all"].
  */
 export async function getQuoteDepositToUniYield(
   params: GetQuoteDepositToUniYieldParams
 ): Promise<{ route: Route; depositAmountOut: string }> {
-  if (!UNIYIELD_DEPOSIT_RECEIVER_BASE) {
-    throw new Error(
-      "VITE_UNIYIELD_DEPOSIT_RECEIVER_ADDRESS not set. Configure the UniYieldDepositReceiver address on Base."
-    );
-  }
+  const mode = params.mode ?? "receiver";
 
   const fromToken =
     USDC_BY_CHAIN[params.fromChainId] ?? USDC_BY_CHAIN_ID[params.fromChainId];
@@ -144,10 +159,24 @@ export async function getQuoteDepositToUniYield(
     throw new Error("USDC not configured for source or Base chain");
   }
 
-  // Validate receiver is configured for USDC before building route
-  await validateReceiverHasUsdcAsset(UNIYIELD_DEPOSIT_RECEIVER_BASE);
+  if (mode === "receiver") {
+    if (!UNIYIELD_DEPOSIT_RECEIVER_BASE) {
+      throw new Error(
+        "VITE_UNIYIELD_DEPOSIT_RECEIVER_ADDRESS not set. Configure the UniYieldDepositReceiver address on Base."
+      );
+    }
+    await validateReceiverHasUsdcAsset(UNIYIELD_DEPOSIT_RECEIVER_BASE);
+  } else {
+    if (!UNIYIELD_VAULT_BASE) {
+      throw new Error(
+        "VITE_UNIYIELD_VAULT_ADDRESS not set. Configure the UniYield vault address on Base."
+      );
+    }
+  }
 
   // Step 1: Bridge-only quote to estimate toAmount on Base
+  // Mode 1: bridge sends to receiver contract. Mode 2: bridge sends to Executor (no toAddress).
+  const bridgeToAddress = mode === "receiver" ? UNIYIELD_DEPOSIT_RECEIVER_BASE : params.userAddress;
   const bridgeQuote = await getQuote({
     fromChain: params.fromChainId,
     toChain: BASE_CHAIN_ID,
@@ -155,7 +184,7 @@ export async function getQuoteDepositToUniYield(
     toToken,
     fromAmount: params.fromAmount,
     fromAddress: params.userAddress,
-    toAddress: UNIYIELD_DEPOSIT_RECEIVER_BASE, // Bridge recipient = receiver contract
+    toAddress: bridgeToAddress,
   });
 
   const toAmount =
@@ -164,18 +193,32 @@ export async function getQuoteDepositToUniYield(
     throw new Error("Could not estimate destination amount");
   }
 
-  // Step 2: Single contract call - receiver.depositToVault(beneficiary, 0)
-  const depositCalldata = encodeDepositToVaultCalldata(beneficiary, 0n);
+  let contractCalls: ContractCall[];
 
-  const contractCalls: ContractCall[] = [
-    {
-      fromAmount: toAmount,
-      fromTokenAddress: toToken,
-      toContractAddress: UNIYIELD_DEPOSIT_RECEIVER_BASE,
-      toContractCallData: depositCalldata,
-      toContractGasLimit: DEPOSIT_TO_VAULT_GAS,
-    },
-  ];
+  if (mode === "receiver") {
+    const depositCalldata = encodeDepositToVaultCalldata(beneficiary, 0n);
+    contractCalls = [
+      {
+        fromAmount: toAmount,
+        fromTokenAddress: toToken,
+        toContractAddress: UNIYIELD_DEPOSIT_RECEIVER_BASE,
+        toContractCallData: depositCalldata,
+        toContractGasLimit: DEPOSIT_TO_VAULT_GAS,
+      },
+    ];
+  } else {
+    const depositCalldata = encodeVaultDepositCalldata(BigInt(toAmount), beneficiary);
+    contractCalls = [
+      {
+        fromAmount: toAmount,
+        fromTokenAddress: toToken,
+        toContractAddress: UNIYIELD_VAULT_BASE,
+        toApprovalAddress: UNIYIELD_VAULT_BASE,
+        toContractCallData: depositCalldata,
+        toContractGasLimit: VAULT_DEPOSIT_GAS,
+      },
+    ];
+  }
 
   const contractCallQuote = await getContractCallsQuote({
     fromChain: params.fromChainId,
@@ -185,12 +228,13 @@ export async function getQuoteDepositToUniYield(
     fromAddress: params.userAddress,
     fromAmount: params.fromAmount,
     contractCalls,
-    toFallbackAddress: beneficiary, // If call fails, send bridged USDC to user
-    // Bridge recipient = receiver contract (LiFi may use this for routing)
-    toAddress: UNIYIELD_DEPOSIT_RECEIVER_BASE,
+    toFallbackAddress: beneficiary,
+    toAddress: mode === "receiver" ? UNIYIELD_DEPOSIT_RECEIVER_BASE : undefined,
     denyExchanges: ["all"],
+    denyBridges: mode === "vault" ? ["stargateV2"] : undefined,
     slippage: 0.003,
-  } as Parameters<typeof getContractCallsQuote>[0] & { toAddress?: string });
+    integrator: "UniYield",
+  } as Parameters<typeof getContractCallsQuote>[0] & { toAddress?: string; denyBridges?: string[]; integrator?: string });
 
   const route = convertQuoteToRoute(contractCallQuote);
   (route as Route & { depositAmountOut?: string }).depositAmountOut = toAmount;
@@ -203,44 +247,68 @@ export async function getQuoteDepositToUniYield(
 
 /**
  * Creates getContractCalls hook for executeRoute.
- * Returns a single contract call: receiver.depositToVault(beneficiary, 0).
- * No patcher needed - receiver deposits its full balance.
+ *
+ * Mode 1: receiver.depositToVault(beneficiary, 0) - no patcher.
+ * Mode 2: vault.deposit(amount, receiver) - uses PatcherMagicNumber when toAmount is 0.
  */
-export function createGetContractCallsForUniYield(): (
+export function createGetContractCallsForUniYield(mode: LifiDepositMode = "receiver"): (
   params: import("@lifi/sdk").ContractCallParams
-) => Promise<{ contractCalls: ContractCall[] }> {
+) => Promise<{ contractCalls: ContractCall[]; patcher?: boolean }> {
   return async (params) => {
-    if (!UNIYIELD_DEPOSIT_RECEIVER_BASE) {
-      throw new Error(
-        "VITE_UNIYIELD_DEPOSIT_RECEIVER_ADDRESS not set. Configure the UniYieldDepositReceiver address on Base."
-      );
-    }
-
     const toToken = USDC_BY_CHAIN[BASE_CHAIN_ID];
     if (!toToken) {
       throw new Error("USDC not configured for Base");
     }
 
-    // Beneficiary = user (vault shares recipient). fromAddress is the sender; toAddress may be bridge recipient.
     const beneficiary = params.fromAddress as Address;
 
-    const depositCalldata = encodeDepositToVaultCalldata(beneficiary, 0n);
+    if (mode === "receiver") {
+      if (!UNIYIELD_DEPOSIT_RECEIVER_BASE) {
+        throw new Error(
+          "VITE_UNIYIELD_DEPOSIT_RECEIVER_ADDRESS not set. Configure the UniYieldDepositReceiver address on Base."
+        );
+      }
 
-    // fromAmount: expected USDC for this call. depositToVault uses full balance; use toAmount when available, else fromAmount (bridge input).
-    const expectedAmount =
-      params.toAmount > 0n ? params.toAmount : params.fromAmount;
+      const depositCalldata = encodeDepositToVaultCalldata(beneficiary, 0n);
+      const expectedAmount =
+        params.toAmount > 0n ? params.toAmount : params.fromAmount;
 
-    const contractCalls: ContractCall[] = [
-      {
-        fromAmount: expectedAmount.toString(),
-        fromTokenAddress: toToken,
-        toContractAddress: UNIYIELD_DEPOSIT_RECEIVER_BASE,
-        toContractCallData: depositCalldata,
-        toContractGasLimit: DEPOSIT_TO_VAULT_GAS,
-      },
-    ];
+      return {
+        contractCalls: [
+          {
+            fromAmount: expectedAmount.toString(),
+            fromTokenAddress: toToken,
+            toContractAddress: UNIYIELD_DEPOSIT_RECEIVER_BASE,
+            toContractCallData: depositCalldata,
+            toContractGasLimit: DEPOSIT_TO_VAULT_GAS,
+          },
+        ],
+      };
+    }
 
-    return { contractCalls };
+    if (!UNIYIELD_VAULT_BASE) {
+      throw new Error(
+        "VITE_UNIYIELD_VAULT_ADDRESS not set. Configure the UniYield vault address on Base."
+      );
+    }
+
+    const usePatcher = params.toAmount <= 0n;
+    const amount = usePatcher ? PatcherMagicNumber : params.toAmount;
+    const depositCalldata = encodeVaultDepositCalldata(amount, beneficiary);
+
+    return {
+      contractCalls: [
+        {
+          fromAmount: amount.toString(),
+          fromTokenAddress: toToken,
+          toContractAddress: UNIYIELD_VAULT_BASE,
+          toApprovalAddress: UNIYIELD_VAULT_BASE,
+          toContractCallData: depositCalldata,
+          toContractGasLimit: VAULT_DEPOSIT_GAS,
+        },
+      ],
+      patcher: usePatcher || undefined,
+    };
   };
 }
 

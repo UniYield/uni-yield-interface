@@ -41,6 +41,7 @@ import {
 import {
   UNIYIELD_VAULT_ADDRESS as CONFIG_VAULT_ADDRESS,
   UNIYIELD_DEPOSIT_RECEIVER_BASE,
+  LIFI_DEPOSIT_MODE,
 } from "@/config/uniyield";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
@@ -71,8 +72,9 @@ const vaultNotDeployed =
   !CONFIG_VAULT_ADDRESS ||
   CONFIG_VAULT_ADDRESS.toLowerCase() === ZERO_ADDRESS;
 const depositReceiverNotConfigured =
-  !UNIYIELD_DEPOSIT_RECEIVER_BASE ||
-  UNIYIELD_DEPOSIT_RECEIVER_BASE.toLowerCase() === ZERO_ADDRESS;
+  LIFI_DEPOSIT_MODE === "receiver" &&
+  (!UNIYIELD_DEPOSIT_RECEIVER_BASE ||
+    UNIYIELD_DEPOSIT_RECEIVER_BASE.toLowerCase() === ZERO_ADDRESS);
 
 export default function VaultPage() {
   const queryClient = useQueryClient();
@@ -221,6 +223,7 @@ export default function VaultPage() {
         fromAmount,
         userAddress: address,
         receiver,
+        mode: LIFI_DEPOSIT_MODE,
       });
       setDepositRoutes([route]);
       setSelectedDepositRouteIndex(0);
@@ -230,7 +233,7 @@ export default function VaultPage() {
     } finally {
       setDepositRoutesLoading(false);
     }
-  }, [address, amount, chain, receiver, isSameChainDeposit]);
+  }, [address, amount, chain, receiver, isSameChainDeposit, LIFI_DEPOSIT_MODE]);
 
   const handleExecuteBridge = useCallback(async () => {
     const route = routes[selectedRouteIndex];
@@ -314,7 +317,7 @@ export default function VaultPage() {
         prev.map((s, i) => (i === 0 ? { ...s, status: "loading" as const } : s))
       );
       executeRoute(route, {
-        getContractCalls: createGetContractCallsForUniYield(),
+        getContractCalls: createGetContractCallsForUniYield(LIFI_DEPOSIT_MODE),
         updateRouteHook(updatedRoute: RouteExtended) {
           const stepsWithExecution = updatedRoute.steps.filter(
             (s) => s.execution != null
