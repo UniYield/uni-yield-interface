@@ -38,11 +38,7 @@ import {
   VAULT_ABI,
   UNIYIELD_VAULT_ADDRESS,
 } from "@/lib/vault";
-import {
-  UNIYIELD_VAULT_ADDRESS as CONFIG_VAULT_ADDRESS,
-  UNIYIELD_DEPOSIT_RECEIVER_BASE,
-  LIFI_DEPOSIT_MODE,
-} from "@/config/uniyield";
+import { UNIYIELD_VAULT_ADDRESS as CONFIG_VAULT_ADDRESS } from "@/config/uniyield";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 type StepStatus = "pending" | "loading" | "complete";
@@ -71,10 +67,6 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const vaultNotDeployed =
   !CONFIG_VAULT_ADDRESS ||
   CONFIG_VAULT_ADDRESS.toLowerCase() === ZERO_ADDRESS;
-const depositReceiverNotConfigured =
-  LIFI_DEPOSIT_MODE === "receiver" &&
-  (!UNIYIELD_DEPOSIT_RECEIVER_BASE ||
-    UNIYIELD_DEPOSIT_RECEIVER_BASE.toLowerCase() === ZERO_ADDRESS);
 
 export default function VaultPage() {
   const queryClient = useQueryClient();
@@ -95,7 +87,7 @@ export default function VaultPage() {
 
   const [destinationChain, setDestinationChain] = useState("base");
   const [destinationMode, setDestinationMode] = useState<"uniyield" | "bridgeToSelf">(
-    vaultNotDeployed || depositReceiverNotConfigured ? "bridgeToSelf" : "uniyield"
+    vaultNotDeployed ? "bridgeToSelf" : "uniyield"
   );
   const [routes, setRoutes] = useState<Route[]>([]);
   const [routesLoading, setRoutesLoading] = useState(false);
@@ -223,7 +215,6 @@ export default function VaultPage() {
         fromAmount,
         userAddress: address,
         receiver,
-        mode: LIFI_DEPOSIT_MODE,
       });
       setDepositRoutes([route]);
       setSelectedDepositRouteIndex(0);
@@ -233,7 +224,7 @@ export default function VaultPage() {
     } finally {
       setDepositRoutesLoading(false);
     }
-  }, [address, amount, chain, receiver, isSameChainDeposit, LIFI_DEPOSIT_MODE]);
+  }, [address, amount, chain, receiver, isSameChainDeposit]);
 
   const handleExecuteBridge = useCallback(async () => {
     const route = routes[selectedRouteIndex];
@@ -317,7 +308,7 @@ export default function VaultPage() {
         prev.map((s, i) => (i === 0 ? { ...s, status: "loading" as const } : s))
       );
       executeRoute(route, {
-        getContractCalls: createGetContractCallsForUniYield(LIFI_DEPOSIT_MODE),
+        getContractCalls: createGetContractCallsForUniYield(),
         updateRouteHook(updatedRoute: RouteExtended) {
           const stepsWithExecution = updatedRoute.steps.filter(
             (s) => s.execution != null
@@ -585,11 +576,9 @@ export default function VaultPage() {
                   1-click bridge/deposit into UniYield
                   <Badge variant="secondary" className="text-xs">Deposit mode</Badge>
                 </span>
-                {(vaultNotDeployed || depositReceiverNotConfigured) && (
+                {vaultNotDeployed && (
                   <span className="text-xs text-muted-foreground">
-                    {depositReceiverNotConfigured
-                      ? "Deposit receiver not configured — set VITE_UNIYIELD_DEPOSIT_RECEIVER_ADDRESS"
-                      : "Vault not deployed — click to preview"}
+                    Vault not deployed — click to preview
                   </span>
                 )}
               </Label>
@@ -721,7 +710,6 @@ export default function VaultPage() {
               onClick={handleDeposit}
               disabled={
                 vaultNotDeployed ||
-                depositReceiverNotConfigured ||
                 !address ||
                 !amount ||
                 parseFloat(amount) <= 0 ||
